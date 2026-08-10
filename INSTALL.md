@@ -1,7 +1,5 @@
 # Install SiteScout (5 minutes)
 
-You were sent `sitescout-skill.zip`. Here is how to make it work in your Claude.
-
 ## What you need first
 
 - **Claude Code** — the CLI, the desktop app, or the VS Code / JetBrains extension.
@@ -9,13 +7,37 @@ You were sent `sitescout-skill.zip`. Here is how to make it work in your Claude.
   its own is not enough.
 - **Node 18 or newer.** Check with `node --version`. If that errors, install Node first.
 
-## Step 1 — unzip it into your skills folder
+## Step 1 — get it into your skills folder
+
+**From the repo (preferred — this is how you get updates):**
+
+```bash
+git clone https://github.com/ukaushik1994/sitescout-skill.git ~/.claude/skills/sitescout
+```
+
+The repo is private, so this will ask you to sign in to GitHub the first time. If you have
+the `gh` CLI, `gh auth login` first and the clone just works. If the clone is refused, ask
+Utkarsh to add you as a collaborator.
+
+**From a zip instead**, if you were sent one:
 
 ```bash
 mkdir -p ~/.claude/skills/sitescout && unzip -o ~/Downloads/sitescout-skill.zip -d ~/.claude/skills/sitescout
 ```
 
-Adjust the path if your download went somewhere else. That is the whole install.
+Either way that is the whole install. Note the folder must be named `sitescout`, matching
+the skill's own name — the clone command above already does that.
+
+## Updating later
+
+If you cloned from the repo:
+
+```bash
+git -C ~/.claude/skills/sitescout pull
+```
+
+Then restart Claude Code. If you installed from a zip you will need a fresh zip each time,
+which is the main reason the repo is the better route.
 
 ## Step 2 — check it loaded
 

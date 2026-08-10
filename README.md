@@ -19,7 +19,11 @@ between a preview you can send and one you have to apologise for.
 
 ## Install
 
-**New here and someone sent you a zip? Read [INSTALL.md](INSTALL.md) instead.**
+**New here? Read [INSTALL.md](INSTALL.md) instead.**
+
+```bash
+git clone https://github.com/ukaushik1994/sitescout-skill.git ~/.claude/skills/sitescout
+```
 
 Requires **Claude Code** (CLI, desktop app, or IDE extension) and **Node 18 or newer**.
 This skill runs scripts and reads and writes local files, so the claude.ai web chat on its
