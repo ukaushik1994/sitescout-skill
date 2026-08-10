@@ -19,7 +19,11 @@ between a preview you can send and one you have to apologise for.
 
 ## Install
 
-Requires Node 18 or newer.
+**New here and someone sent you a zip? Read [INSTALL.md](INSTALL.md) instead.**
+
+Requires **Claude Code** (CLI, desktop app, or IDE extension) and **Node 18 or newer**.
+This skill runs scripts and reads and writes local files, so the claude.ai web chat on its
+own is not enough.
 
 **Just you, all projects:**
 
