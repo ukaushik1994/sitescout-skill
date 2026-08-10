@@ -14,6 +14,7 @@
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
+import { execFileSync } from 'child_process'
 
 const DATA_DIR = path.join(process.cwd(), '.sitescout')
 const LEADS_FILE = path.join(DATA_DIR, 'leads.json')
@@ -931,7 +932,6 @@ function cmdDesignDb(query) {
     console.log('(ui-ux-pro-max design database not installed - skipping, this is optional)')
     return
   }
-  const { execFileSync } = require('child_process')
   try {
     const raw = execFileSync('python3', [script, '--design-system', query], { timeout: 30000, maxBuffer: 1024 * 1024 }).toString()
     const clean = raw
