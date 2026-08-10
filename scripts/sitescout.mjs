@@ -283,20 +283,20 @@ async function cmdEnrich(id) {
     enrichedAt: Date.now(),
   })
 
-  // reviews, photos and editorialSummary sit in a higher Places billing tier than
-  // rating and hours. When that tier is not enabled the API returns HTTP 200 and
-  // simply omits the fields - no error to catch. Say so loudly, because the pitch
-  // hook depends on real review quotes and silence here looks like success.
+  // The API returns HTTP 200 and omits fields the key is not entitled to read, so
+  // there is no error to catch and silence looks identical to success. Say it out
+  // loud, because the pitch hook depends on having real review quotes.
   const missing = []
   if (!updated.reviews.length) missing.push('reviews')
   if (!freshPhotos.length) missing.push('photos')
   if (!updated.editorialSummary) missing.push('editorialSummary')
   if (missing.length && data.regularOpeningHours) {
     console.error(
-      '\nWarning: the API returned no ' + missing.join(', ') + ' for this business, but did return opening hours.\n' +
-        'That pattern means the key cannot read the higher-tier Places fields, not that the data is absent.\n' +
-        'Run "sitescout doctor" to confirm which fields your key can actually read.\n' +
-        'Until that is fixed the site will show the Google rating instead of real quotes, and use SVG visuals instead of photos.\n'
+      '\nWarning: no ' + missing.join(', ') + ' returned for this business, but opening hours came through.\n' +
+        'That pattern usually means the key cannot read those fields at all, rather than this business\n' +
+        'lacking the data. Confirm with: sitescout doctor --deep\n' +
+        'Until it is resolved the site will show the Google rating instead of real quotes, and SVG\n' +
+        'visuals instead of photos. Both work, they are just weaker.\n'
     )
   }
 
@@ -314,7 +314,8 @@ async function cmdEnrich(id) {
 // The failure this catches is silent: Places returns 200 and omits fields the key
 // is not entitled to. Without this you find out by shipping a site with no photos
 // and a pitch with no customer quote.
-async function cmdDoctor() {
+async function cmdDoctor(flags = {}) {
+  const flagsDeep = !!flags.deep
   const key = googleKey()
   console.log('Google Maps key: ' + (key ? 'found' : 'NOT FOUND'))
   if (!key) {
@@ -351,15 +352,44 @@ async function cmdDoctor() {
   const blocked = results.filter((r) => !r.ok).map((r) => r.mask)
   if (blocked.length) {
     console.log('\nBlocked: ' + blocked.join(', '))
-    console.log('These are higher-tier Places fields. The API returns HTTP 200 and omits them rather than erroring,')
-    console.log('so nothing in the pipeline will complain. Check in Google Cloud Console:')
-    console.log('  1. Places API (New) is enabled on the project')
-    console.log('  2. Billing is active on that project')
-    console.log('  3. The key has no API or field restrictions that exclude these')
-    console.log('\nWithout reviews: sites show the Google rating instead of customer quotes, and the pitch')
-    console.log('loses its strongest hook. Without photos: sites use the SVG motif visuals instead.')
+    console.log('\nThe API returns HTTP 200 and simply omits these fields. Nothing errors, so nothing')
+    console.log('downstream will complain - you would only notice by shipping a site with no photos')
+    console.log('and a pitch with no customer quote.')
+    console.log('\nThis is an account-level entitlement on the Google Cloud project behind the key, not')
+    console.log('a problem with a particular business and not something this tool can work around.')
+    if (!flagsDeep) console.log('To confirm it is account-wide, run: sitescout doctor --deep')
+    console.log('\nWorth checking in Google Cloud Console, though none of these is a confirmed cause:')
+    console.log('  - Credentials > your key > API restrictions')
+    console.log('  - Billing is fully active on the project, not trial credits')
+    console.log('  - Places API (New) is enabled on that same project')
+    console.log('If all three look right, this needs Google Cloud support rather than more guessing.')
+    console.log('\nMeanwhile the tool still works. Without reviews, sites show the Google rating instead')
+    console.log('of customer quotes. Without photos, sites use the SVG motif visuals. Both are')
+    console.log('legitimate fallbacks, just weaker than the real thing.')
   } else {
     console.log('\nAll fields readable. Real reviews, hours and photos are available.')
+  }
+
+  if (flagsDeep) {
+    // Distinguishes "this business has no data" from "the key cannot read the field".
+    // A landmark with hundreds of thousands of reviews definitely has both.
+    console.log('\n--- deep check: a landmark that certainly has photos and reviews ---')
+    const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': 'places.displayName,places.userRatingCount,places.photos' },
+      body: JSON.stringify({ textQuery: 'Gateway of India Mumbai', maxResultCount: 1 }),
+    })
+    const d = await r.json()
+    const p = (d.places || [])[0]
+    if (!p) {
+      console.log('  could not reach the reference place; skipping')
+    } else {
+      const n = (p.photos || []).length
+      console.log(`  ${(p.displayName && p.displayName.text) || '?'}: ${p.userRatingCount ?? '?'} reviews, ${n} photos returned`)
+      console.log(n === 0
+        ? '  Zero photos on a place with this many reviews confirms the block is account-wide.'
+        : '  Photos come through here, so the earlier omission was specific to that business.')
+    }
   }
 }
 
@@ -740,7 +770,7 @@ const HELP = `SiteScout - find local businesses with weak websites, build them a
   sitescout photos <slug> [--max=3]     Download their real Google photos
   sitescout facts <slug>                Print the ONLY facts allowed on the site
   sitescout set <slug> status=pitched   Update a lead
-  sitescout doctor                      Check which Places fields your key can read
+  sitescout doctor [--deep]             Check which Places fields your key can read
 
 Google Maps key (optional): GOOGLE_MAPS_KEY env var, or ~/.sitescout/config.json
 Pipeline data: ./.sitescout/leads.json`
@@ -765,7 +795,7 @@ try {
     case 'photos': await cmdPhotos(args[0], flags); break
     case 'facts': cmdFacts(args[0]); break
     case 'set': cmdSet(args[0], args.slice(1)); break
-    case 'doctor': await cmdDoctor(); break
+    case 'doctor': await cmdDoctor(flags); break
     default: console.log(HELP)
   }
 } catch (e) {
