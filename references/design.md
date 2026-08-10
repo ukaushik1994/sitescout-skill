@@ -74,6 +74,47 @@ palette. Crafted and abstract. Never clipart, never emoji.
 
 The palette must feel chosen for this exact business and motif. Not a default blue or teal.
 
+## Use the user's own design skills
+
+`sitescout facts <slug>` returns a `designSkills` block. If `active` is non-empty, **load
+each of those skills before you write any HTML**, and give each one the `business` block
+from the same facts output.
+
+The point is a recommendation for *this* business, not a generic palette. A skill asked
+"suggest a palette" returns something forgettable. The same skill asked "palette and type
+pairing for a 4.9-star dental clinic in Khar West Mumbai, calm and clinical, motif is soft
+rounded arcs" returns something you can actually use.
+
+Order of authority when they disagree:
+
+1. **The facts.** No skill can add a claim that is not in the facts JSON.
+2. **SiteScout's output constraints.** One HTML file, all CSS inline, no external JS or CSS
+   libraries, one Google Fonts import, no build step. Many design skills will suggest React,
+   Tailwind, shadcn, GSAP or a component library. **Take their taste and ignore their
+   stack.** A palette, a type scale, a spacing rhythm, a section order, a critique - all
+   portable. A dependency is not.
+3. **The design personality above.** Archetype and motif come from the design seed, so the
+   site stays distinct from every other business. If a skill pushes a different layout,
+   keep the seeded archetype and let the skill inform surface detail instead.
+4. **Then the skill's advice.**
+
+`missing` lists skills the user nominated that are not installed on this machine. Skip them
+silently, do not try to install anything, and do not mention it unless the user asks.
+
+If `active` is empty, this file is a complete design system on its own. Carry on.
+
+There is also a design database worth querying when it is installed:
+
+```
+sitescout designdb "<industry> landing page"
+```
+
+That returns concrete palettes, font pairings with their Google Fonts import, landing
+patterns and a UX checklist. Adopt its color tokens, its font pairing including the import
+line, and its structure. Treat its checklist as mandatory. Where it conflicts with the
+seeded personality, the personality wins on layout and motif; shift the palette accent to
+suit the motif instead. It prints a one-line note and exits harmlessly when absent.
+
 ## Design philosophy
 
 This is a story-driven site, not a brochure. Find the story already sitting in the real

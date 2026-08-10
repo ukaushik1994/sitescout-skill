@@ -714,7 +714,234 @@ function cmdFacts(id) {
     enriched: !!lead.enrichedAt,
     audited: !!lead.auditedAt,
     designBrief: lead.designBrief || '',
+    // Skills the user nominated. Load each installed one BEFORE designing and give it
+    // the business block above, so its recommendation is for this business rather than
+    // a generic palette. Missing ones are skipped, not an error.
+    designSkills: (() => {
+      const active = activeDesignSkills()
+      if (!active.length) return { active: [], missing: [], note: 'none configured - references/design.md is sufficient on its own' }
+      const installed = new Set(scanInstalledSkills().map((s) => s.name))
+      return {
+        active: active.filter((n) => installed.has(n)),
+        missing: active.filter((n) => !installed.has(n)),
+        note: 'load these before designing, pass them the business block, and ignore any advice to add a JS/CSS library or a build step',
+      }
+    })(),
   })
+}
+
+// ---------------------------------------------------------------- design skills
+
+// Bring the user's own design skills to bear on generation. They have spent time
+// installing skills that know typography, palettes and layout far better than a
+// paragraph of instructions can; this lets them nominate which ones SiteScout
+// consults, instead of one hardcoded bridge that silently no-ops when absent.
+
+const SKILL_ROOTS = [
+  path.join(os.homedir(), '.claude', 'skills'),
+  path.join(process.cwd(), '.claude', 'skills'),
+]
+
+// Skills sometimes sit at <root>/<name>/SKILL.md and sometimes one repo deeper at
+// <root>/<repo>/.claude/skills/<name>/SKILL.md. Miss the nested case and you miss
+// real skills - ui-ux-pro-max is exactly that shape.
+function scanInstalledSkills() {
+  const found = new Map()
+  const readSkill = (dir) => {
+    const f = path.join(dir, 'SKILL.md')
+    if (!fs.existsSync(f)) return null
+    let raw = ''
+    try { raw = fs.readFileSync(f, 'utf8') } catch { return null }
+    const m = raw.match(/^---\s*([\s\S]*?)\n---/)
+    if (!m) return null
+    const name = ((m[1].match(/^name:\s*(.+)$/m) || [])[1] || path.basename(dir)).trim().replace(/^["']|["']$/g, '')
+    let desc = ((m[1].match(/^description:\s*([\s\S]*?)(?=\n[a-zA-Z_-]+:|$)/m) || [])[1] || '').replace(/\s+/g, ' ').trim().replace(/^["']|["']$/g, '')
+    return { name, dir, desc }
+  }
+  // Exactly two shapes, no general recursion. Walking deeper picks up plugin caches
+  // and vendored copies, which is how a 340-skill machine reports 1146.
+  const scanRoot = (root) => {
+    if (!fs.existsSync(root)) return
+    let entries = []
+    try { entries = fs.readdirSync(root, { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      if (!e.isDirectory() || e.name.startsWith('.')) continue
+      const dir = path.join(root, e.name)
+      const s = readSkill(dir)
+      if (s && !found.has(s.name)) found.set(s.name, s)
+      // <root>/<repo>/.claude/skills/<name>/SKILL.md - ui-ux-pro-max is this shape
+      const nested = path.join(dir, '.claude', 'skills')
+      if (!fs.existsSync(nested)) continue
+      let inner = []
+      try { inner = fs.readdirSync(nested, { withFileTypes: true }) } catch { continue }
+      for (const j of inner) {
+        if (!j.isDirectory() || j.name.startsWith('.')) continue
+        const s2 = readSkill(path.join(nested, j.name))
+        if (s2 && !found.has(s2.name)) found.set(s2.name, s2)
+      }
+    }
+  }
+  for (const r of SKILL_ROOTS) scanRoot(r)
+  return [...found.values()]
+}
+
+// Keyword matching was tried and abandoned: it excluded ui-ux-pro-max for saying
+// "mobile" and apple-design for saying "iOS", while happily suggesting a SaaS
+// boilerplate generator. Hand-picked instead, matched by name against what is
+// actually installed. Use --all or --grep to reach anything not on this list.
+const RECOMMENDED = [
+  ['ui-ux-pro-max', 'palettes, font pairings, landing patterns, UX checklists - the design database'],
+  ['design-taste-frontend', 'anti-slop landing pages, refuses to look templated'],
+  ['high-end-visual-design', 'agency-grade fonts, spacing, shadows, card treatments'],
+  ['frontend-design', 'distinctive production-grade interfaces'],
+  ['ecc-frontend-design', 'distinctive production-grade interfaces (ecc build)'],
+  ['impeccable', 'critique and polish an existing design, visual hierarchy'],
+  ['emil-design-eng', 'the small details: hover, focus, transitions, polish'],
+  ['apple-design', 'restraint, depth, typography, physical motion feel'],
+  ['minimalist-ui', 'clean editorial style, if that suits the business'],
+  ['copywriting', 'marketing copy for the page, not just the layout'],
+  ['page-cro', 'section order and CTA placement that actually converts'],
+]
+
+// These will actively fight SiteScout's output constraints. Previews are one HTML
+// file with no libraries and no build step, so anything React, Tailwind, GSAP or
+// scaffolding leads somewhere the preview cannot go.
+const AVOID = [
+  ['gsap-*', 'GSAP is an external JS library'],
+  ['react-bits', 'React components'],
+  ['ckm:ui-styling', 'shadcn/ui, needs React and Tailwind'],
+  ['pick-ui-library', 'the answer here is always "no library"'],
+  ['artifacts-builder', 'React and multi-file artifacts'],
+  ['saas-scaffolder', 'generates a whole app, wrong shape entirely'],
+]
+
+function readConfig() {
+  try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) } catch { return {} }
+}
+
+function writeConfig(cfg) {
+  fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true })
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 })
+}
+
+function activeDesignSkills() {
+  const cfg = readConfig()
+  return Array.isArray(cfg.designSkills) ? cfg.designSkills : []
+}
+
+function cmdSkills(args, flags) {
+  const sub = args[0]
+
+  if (flags.available || flags.all || flags.grep || sub === 'available') {
+    const all = scanInstalledSkills()
+    const byName = new Map(all.map((s) => [s.name, s]))
+    const active = new Set(activeDesignSkills())
+    const mark = (n) => (active.has(n) ? '[x] ' : '[ ] ')
+
+    if (flags.all || flags.grep) {
+      // Accept both --grep=design and --grep design
+      const rawTerm = typeof flags.grep === 'string' ? flags.grep : flags.grep === true ? args.find((a) => a !== 'available') || '' : ''
+      const term = String(rawTerm).toLowerCase()
+      const list = all
+        .filter((s) => !term || (s.name + ' ' + s.desc).toLowerCase().includes(term))
+        .sort((a, b) => a.name.localeCompare(b.name))
+      console.log(`${list.length} of ${all.length} installed skills${term ? ` matching "${term}"` : ''}:\n`)
+      for (const s of list) console.log('  ' + mark(s.name) + s.name.padEnd(32) + s.desc.slice(0, 74))
+      console.log('\nAdd by name:  sitescout skills add <name> [<name>...]')
+      return
+    }
+
+    const present = RECOMMENDED.filter(([n]) => byName.has(n))
+    const absent = RECOMMENDED.filter(([n]) => !byName.has(n))
+    console.log(`${all.length} skills installed. Recommended for building preview sites:\n`)
+    present.forEach(([n, why], i) => {
+      console.log(String(i + 1).padStart(3) + '. ' + mark(n) + n.padEnd(26) + why)
+    })
+    if (!present.length) console.log('  (none of the recommended set is installed on this machine)')
+    if (absent.length) {
+      console.log('\nRecommended but not installed here: ' + absent.map(([n]) => n).join(', '))
+    }
+    console.log('\nSkip these, they fight the single-file no-library constraint:')
+    for (const [n, why] of AVOID) console.log('  ' + n.padEnd(20) + why)
+    console.log('\n[x] = already active. Pick several at once, by number or name:')
+    console.log('  sitescout skills add 1 2 4')
+    console.log('  sitescout skills add ui-ux-pro-max copywriting')
+    console.log('\nAnything else you have:  sitescout skills --all   or   --grep design')
+    return
+  }
+
+  if (sub === 'add' || sub === 'remove') {
+    let names = args.slice(1)
+    if (!names.length) fail(`Usage: sitescout skills ${sub} <name|number> [...]`)
+
+    // Numbers refer to the recommended list shown by --available, so "add 1 2 4" works.
+    if (names.some((n) => /^\d+$/.test(n))) {
+      const installed = new Set(scanInstalledSkills().map((s) => s.name))
+      const present = RECOMMENDED.filter(([n]) => installed.has(n))
+      names = names.map((n) => {
+        if (!/^\d+$/.test(n)) return n
+        const hit = present[Number(n) - 1]
+        if (!hit) fail(`No skill numbered ${n}. Run: sitescout skills --available`)
+        return hit[0]
+      })
+    }
+
+    const cfg = readConfig()
+    const set = new Set(Array.isArray(cfg.designSkills) ? cfg.designSkills : [])
+    for (const n of names) sub === 'add' ? set.add(n) : set.delete(n)
+    cfg.designSkills = [...set]
+    writeConfig(cfg)
+    console.log((sub === 'add' ? 'Added: ' : 'Removed: ') + names.join(', '))
+    console.log('Active design skills: ' + (cfg.designSkills.length ? cfg.designSkills.join(', ') : '(none)'))
+    return
+  }
+
+  const active = activeDesignSkills()
+  const installed = new Map(scanInstalledSkills().map((s) => [s.name, s]))
+  if (!active.length) {
+    console.log('No design skills configured. SiteScout will use references/design.md alone,')
+    console.log('which is a complete design system on its own - this is optional polish.\n')
+    console.log('See what you have:  sitescout skills --available')
+    return
+  }
+  console.log('Design skills SiteScout will consult:\n')
+  for (const n of active) {
+    const hit = installed.get(n)
+    console.log('  ' + (hit ? 'ok  ' : 'MISSING  ') + n + (hit ? '' : '  (not installed on this machine - will be skipped)'))
+  }
+  const missing = active.filter((n) => !installed.has(n))
+  if (missing.length) {
+    console.log('\nMissing skills are skipped silently at generate time rather than failing the build.')
+    console.log('Remove them if you do not intend to install them:  sitescout skills remove ' + missing.join(' '))
+  }
+}
+
+// The ui-ux-pro-max design database, if installed: 161 palettes, 57 font pairings,
+// landing patterns, UX checklists. Queried per industry and fed into the design
+// prompt. Fails soft and silent when absent.
+function cmdDesignDb(query) {
+  if (!query) fail('Usage: sitescout designdb "<industry> landing page"')
+  const candidates = []
+  for (const root of SKILL_ROOTS) {
+    candidates.push(path.join(root, 'ui-ux-pro-max-skill', '.claude', 'skills', 'ui-ux-pro-max', 'scripts', 'search.py'))
+    candidates.push(path.join(root, 'ui-ux-pro-max', 'scripts', 'search.py'))
+  }
+  const script = candidates.find((p) => fs.existsSync(p))
+  if (!script) {
+    console.log('(ui-ux-pro-max design database not installed - skipping, this is optional)')
+    return
+  }
+  const { execFileSync } = require('child_process')
+  try {
+    const raw = execFileSync('python3', [script, '--design-system', query], { timeout: 30000, maxBuffer: 1024 * 1024 }).toString()
+    const clean = raw
+      .replace(/[╔╗╚╝║╠╣┌┐└┘├┤│]/g, '')
+      .replace(/[─═]{3,}/g, '--')
+      .split('\n').map((l) => l.trim()).filter(Boolean).join('\n')
+    console.log(clean || '(design database returned nothing for this query)')
+  } catch (e) {
+    console.log('(design database call failed, skipping: ' + (e.message || '').slice(0, 120) + ')')
+  }
 }
 
 // ---------------------------------------------------------------- list / set
@@ -771,6 +998,10 @@ const HELP = `SiteScout - find local businesses with weak websites, build them a
   sitescout facts <slug>                Print the ONLY facts allowed on the site
   sitescout set <slug> status=pitched   Update a lead
   sitescout doctor [--deep]             Check which Places fields your key can read
+  sitescout skills --available          List installed skills worth using for design
+  sitescout skills add 2 5 9            Pick several, by number or name
+  sitescout skills                      Show which are active and which are missing
+  sitescout designdb "<query>"          Query the ui-ux-pro-max design database
 
 Google Maps key (optional): GOOGLE_MAPS_KEY env var, or ~/.sitescout/config.json
 Pipeline data: ./.sitescout/leads.json`
@@ -796,6 +1027,8 @@ try {
     case 'facts': cmdFacts(args[0]); break
     case 'set': cmdSet(args[0], args.slice(1)); break
     case 'doctor': await cmdDoctor(flags); break
+    case 'skills': cmdSkills(args, flags); break
+    case 'designdb': cmdDesignDb(args[0]); break
     default: console.log(HELP)
   }
 } catch (e) {

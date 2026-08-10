@@ -114,6 +114,23 @@ appear on the site.**
 
 Read `references/design.md` now, then write the site.
 
+If the user has nominated design skills, `facts` lists them under `designSkills.active`.
+**Load each one before writing any HTML and pass it the business block**, so its advice is
+for this business rather than a generic palette. Their taste applies; their stack does not,
+because previews stay a single HTML file with no libraries and no build step. Full rules for
+resolving conflicts are in `references/design.md`.
+
+First time in a project, or if the user asks what design skills are being used:
+
+```
+node scripts/sitescout.mjs skills --available    # recommended set, numbered
+node scripts/sitescout.mjs skills add 1 2 4      # pick several at once
+node scripts/sitescout.mjs skills                # what is active, what is missing
+```
+
+Offer the numbered list and let them choose. Do not pick for them beyond suggesting the
+recommended set, and never add a skill from the "skip these" list.
+
 One HTML file, all CSS inline. The design personality is derived from the `designSeed`
 in the facts, so the same business always gets the same look and no two businesses look
 alike. Save to `./sitescout-previews/<slug>.html`, then record it:
